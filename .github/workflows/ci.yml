@@ -11,6 +11,7 @@ env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   AR_REPO: ${{ secrets.AR_REPO }}
   SERVICE_NAME: campus-event-hub-event-service
+  CLOUD_SQL_CONNECTION_NAME: swe-455-487017:us-central1:campus-event-hub
 
 jobs:
   # ── Factor 5: strict build / release / run separation ──────────────────────
@@ -61,25 +62,29 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --quiet
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build and push image
         uses: docker/build-push-action@v6
-        env:
-          IMAGE_TAG: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO }}/campus-event-hub-event-service:${{ github.sha }}
         with:
           context: .
           push: true
-          tags: ${{ env.IMAGE_TAG }}
+          tags: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       # Factor 12: run DB migrations as a one-off admin process before releasing
       - name: Run DB migrations (Cloud Run Job)
         run: |
+          gcloud run jobs delete migrate-${{ github.sha }} --region ${{ env.REGION }} --quiet || true
           gcloud run jobs create migrate-${{ github.sha }} \
             --image ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
             --region ${{ env.REGION }} \
+            --service-account ${{ secrets.WIF_SERVICE_ACCOUNT }} \
+            --set-cloudsql-instances ${{ env.CLOUD_SQL_CONNECTION_NAME }} \
             --set-env-vars "DATABASE_URL=${{ secrets.DATABASE_URL }}" \
             --command "alembic" \
             --args "upgrade,head" \
