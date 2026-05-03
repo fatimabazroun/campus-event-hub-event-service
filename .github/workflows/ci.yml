@@ -72,25 +72,37 @@ jobs:
         with:
           context: .
           push: true
-          tags: "${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO }}/campus-event-hub-event-service:${{ github.sha }}"          cache-from: type=gha
+          tags: "${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO }}/campus-event-hub-event-service:${{ github.sha }}"
+          cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Factor 12: run DB migrations as a one-off admin process before releasing
+     # Factor 12: run DB migrations as a one-off admin process before releasing
       - name: Run DB migrations (Cloud Run Job)
         run: |
-          gcloud run jobs delete migrate-${{ github.sha }} --region ${{ env.REGION }} --quiet || true
-          gcloud run jobs create migrate-${{ github.sha }} \
-            --image ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
-            --region ${{ env.REGION }} \
-            --service-account ${{ secrets.WIF_SERVICE_ACCOUNT }} \
-            --set-cloudsql-instances ${{ env.CLOUD_SQL_CONNECTION_NAME }} \
+          JOB_NAME="migrate-${{ github.sha }}"
+      
+          # Delete if exists (ignore error)
+          gcloud run jobs delete "$JOB_NAME" \
+            --region "${{ env.REGION }}" \
+            --quiet || true
+      
+          # Create + run job
+          gcloud run jobs create "$JOB_NAME" \
+            --image "${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE_NAME }}:${{ github.sha }}" \
+            --region "${{ env.REGION }}" \
+            --service-account "${{ secrets.WIF_SERVICE_ACCOUNT }}" \
+            --set-cloudsql-instances "${{ env.CLOUD_SQL_CONNECTION_NAME }}" \
             --set-env-vars "DATABASE_URL=${{ secrets.DATABASE_URL }}" \
-            --command "alembic" \
-            --args "upgrade,head" \
+            --command alembic \
+            --args upgrade,head \
             --max-retries 1 \
             --execute-now \
-            --wait \
-          && gcloud run jobs delete migrate-${{ github.sha }} --region ${{ env.REGION }} --quiet
+            --wait
+      
+          # Cleanup
+          gcloud run jobs delete "$JOB_NAME" \
+            --region "${{ env.REGION }}" \
+            --quiet
 
       # Factor 5: deploy the pre-built, pre-migrated image
       - name: Deploy to Cloud Run
