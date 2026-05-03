@@ -68,12 +68,12 @@ jobs:
 
       - name: Build and push image
         uses: docker/build-push-action@v6
+        env:
+          IMAGE_TAG: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO }}/campus-event-hub-event-service:${{ github.sha }}
         with:
           context: .
           push: true
-          tags: ${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.AR_REPO }}/campus-event-hub-event-service:${{ github.sha }}          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
+          tags: ${{ env.IMAGE_TAG }}
       # Factor 12: run DB migrations as a one-off admin process before releasing
       - name: Run DB migrations (Cloud Run Job)
         run: |
